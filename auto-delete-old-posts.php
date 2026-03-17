@@ -266,7 +266,9 @@ function adop_render_admin_page() {
                 <input type="number" id="adop-manual-batch-limit" name="manual_batch_limit" min="1" value="<?php echo esc_attr($manual_batch); ?>" style="width:100px;" />
                 <button type="button" class="button button-primary" id="adop-manual-delete-btn">Chạy xóa bài cũ thủ công</button>
                 <button type="button" class="button" id="adop-stop-btn" disabled>Dừng lại</button>
+                <button type="button" class="button" id="adop-check-count-btn">Kiểm tra số bài đạt điều kiện xóa</button>
             </p>
+            <div id="adop-check-result" style="margin-top:8px; padding:10px 12px; background:#f0f6fc; border-left:4px solid #72aee6; color:#1d2327; font-size:13px; display:none; max-width:800px;"></div>
             <div id="adop-delete-output" style="margin-top:10px; display:none;">
                 <div id="adop-delete-list-box-process" style="margin:0 0 8px 0; padding:10px 12px; min-height:24px; background:#f0f6fc; border-left:4px solid #72aee6; color:#1d2327; font-size:13px; line-height:1.5;"></div>
                 <div id="adop-delete-list-box" style="max-height:260px; overflow-y:auto; border:1px solid #c3c4c7; padding:10px; background:#fff;">
@@ -305,6 +307,38 @@ function adop_render_admin_page() {
     </div>
     <?php
 }
+
+// AJAX: Đếm số bài đạt điều kiện xóa (không xóa)
+add_action('wp_ajax_adop_check_count', function () {
+    if (!current_user_can('manage_options') || !check_ajax_referer('adop_manual_delete', 'nonce', false)) {
+        wp_send_json_error(['message' => 'Không có quyền hoặc lỗi bảo mật!']);
+    }
+    $post_type = get_option(ADOP_POST_TYPE_OPTION, ADOP_DEFAULT_POST_TYPE);
+    $months_ago = intval(get_option(ADOP_MONTHS_OPTION, ADOP_DEFAULT_MONTHS));
+    $before_str = $months_ago . ' months ago';
+    $args = array(
+        'post_type'      => $post_type,
+        'post_status'    => array('draft', 'publish'),
+        'posts_per_page' => 1,
+        'no_found_rows'  => false,
+        'date_query'     => array(
+            array(
+                'column' => 'post_date',
+                'before' => $before_str,
+            ),
+        ),
+        'fields'         => 'ids',
+    );
+    $query = new \WP_Query($args);
+    $count = (int) $query->found_posts;
+    $post_type_obj = get_post_type_object($post_type);
+    $type_label = $post_type_obj ? $post_type_obj->labels->name : $post_type;
+    wp_send_json_success(array(
+        'count'       => $count,
+        'months_ago'  => $months_ago,
+        'post_type'   => $type_label,
+    ));
+});
 
 // AJAX: Xóa thủ công theo batch
 add_action('wp_ajax_adop_manual_delete_batch', function () {
@@ -378,7 +412,7 @@ add_action('wp_ajax_adop_save_settings', function () {
 
 add_action('admin_enqueue_scripts', function($hook) {
     if ($hook === 'toplevel_page_adop-delete-posts') {
-        wp_enqueue_script('adop-admin-js', plugin_dir_url(__FILE__).'adop-admin.js', ['jquery'], '1.4', true);
+        wp_enqueue_script('adop-admin-js', plugin_dir_url(__FILE__).'adop-admin.js', ['jquery'], '1.5', true);
         wp_localize_script('adop-admin-js', 'adopAjax', [
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce_delete' => wp_create_nonce('adop_manual_delete'),

@@ -95,4 +95,27 @@ jQuery(document).ready(function($) {
         stopped = true;
         $(this).prop('disabled', true);
     });
+
+    // Kiểm tra số bài đạt điều kiện xóa
+    $('#adop-check-count-btn').on('click', function() {
+        var $btn = $(this);
+        var $result = $('#adop-check-result');
+        $result.show().css({ background: '#f0f6fc', borderLeftColor: '#72aee6' }).text('Đang kiểm tra…');
+        $btn.prop('disabled', true);
+        $.post(adopAjax.ajax_url, {
+            action: 'adop_check_count',
+            nonce: adopAjax.nonce_delete
+        }, function(res) {
+            $btn.prop('disabled', false);
+            if (res.success && res.data) {
+                var d = res.data;
+                $result.text('Có ' + d.count + ' bài đạt điều kiện xóa (cũ hơn ' + d.months_ago + ' tháng, loại: ' + d.post_type + ').');
+            } else {
+                $result.css({ background: '#fcf0f1', borderLeftColor: '#d63638' }).text(res.data && res.data.message ? res.data.message : 'Lỗi không xác định.');
+            }
+        }).fail(function() {
+            $btn.prop('disabled', false);
+            $result.css({ background: '#fcf0f1', borderLeftColor: '#d63638' }).text('Lỗi kết nối. Thử lại.');
+        });
+    });
 }); 
