@@ -18,36 +18,36 @@ jQuery(document).ready(function($) {
             }
             $form.prepend(msg);
             setTimeout(function(){ msg.fadeOut(); }, 3000);
+        }).fail(function() {
+            $form.find('button[type=submit]').prop('disabled', false);
+            $form.prepend($('<div id="adop-settings-message" class="notice notice-error">Lỗi kết nối. Thử lại.</div>'));
         });
     });
 
     // Xóa thủ công bằng AJAX (batch)
     let stopped = false;
     let totalDeleted = 0;
-    let totalToDelete = 4; // hoặc lấy từ input cấu hình
 
     $('#adop-manual-delete-btn').on('click', function(e) {
         e.preventDefault();
         stopped = false;
         totalDeleted = 0;
+        var $form = $('#adop-manual-delete-form');
+        var totalToDelete = Math.max(1, parseInt($form.find('#adop-manual-total-limit').val(), 10) || 1);
+        var batchLimit = Math.max(1, parseInt($form.find('#adop-manual-batch-limit').val(), 10) || 1);
         var $btn = $(this);
+        var $stopBtn = $('#adop-stop-btn');
         $btn.prop('disabled', true);
-        var $msg = $('#adop-delete-message');
-        if ($msg.length === 0) {
-            $msg = $('<div id="adop-delete-message" class="notice"></div>').insertBefore($btn);
-        }
-        var $titleList = $('#adop-delete-titles');
-        if ($titleList.length === 0) {
-            $titleList = $('<ul id="adop-delete-titles" style="margin-top:10px;"></ul>').insertAfter($msg);
-        } else {
-            $titleList.empty();
-        }
-        var batchLimit = parseInt($('#adop-manual-batch-limit').val()) || 1;
+        $stopBtn.removeAttr('disabled').prop('disabled', false);
+        $('#adop-delete-output').show();
+        var $processEl = $('#adop-delete-list-box-process');
+        var $titleList = $('#adop-delete-titles').empty();
+        $processEl.css({ background: '#f0f6fc', borderLeftColor: '#72aee6' }).html('Đang bắt đầu…');
         function runBatch() {
             if (stopped || totalDeleted >= totalToDelete) {
                 $btn.prop('disabled', false);
-                $('#adop-stop-btn').prop('disabled', true);
-                $msg.text('Đã dừng hoặc đã xóa đủ số lượng!');
+                $('#adop-stop-btn').prop('disabled', true).attr('disabled', 'disabled');
+                $processEl.html('Đã dừng hoặc đã xóa đủ số lượng!');
                 return;
             }
             $.post(adopAjax.ajax_url, {
@@ -57,7 +57,14 @@ jQuery(document).ready(function($) {
             }, function(res) {
                 if(res.success) {
                     totalDeleted += res.data.deleted;
-                    $msg.text(`Đã xóa ${totalDeleted}/${totalToDelete} bài. ${res.data.message}`);
+                    // Show progress: never exceed target (e.g. target 4, batch 20 -> show "4/4" not "20/4")
+                    var shown = totalDeleted > totalToDelete ? totalToDelete : totalDeleted;
+                    var progress = 'Đã xóa ' + shown + '/' + totalToDelete + ' bài (mục tiêu).';
+                    if (res.data.done) {
+                        $processEl.html(progress + ' Không còn bài nào phù hợp để xóa.');
+                    } else {
+                        $processEl.html(progress + ' Lượt vừa rồi: ' + res.data.deleted + ' bài.');
+                    }
                     // Hiển thị tiêu đề bài đã xóa
                     if(res.data.titles && res.data.titles.length) {
                         res.data.titles.forEach(function(title) {
@@ -68,12 +75,17 @@ jQuery(document).ready(function($) {
                         setTimeout(runBatch, 500);
                     } else {
                         $btn.prop('disabled', false);
-                        $('#adop-stop-btn').prop('disabled', true);
+                        $('#adop-stop-btn').prop('disabled', true).attr('disabled', 'disabled');
                     }
                 } else {
-                    $msg.removeClass('notice-success').addClass('notice-error').text(res.data && res.data.message ? res.data.message : 'Lỗi không xác định!');
+                    $processEl.css({ background: '#fcf0f1', borderLeftColor: '#d63638' }).html(res.data && res.data.message ? res.data.message : 'Lỗi không xác định!');
                     $btn.prop('disabled', false);
+                    $('#adop-stop-btn').prop('disabled', true).attr('disabled', 'disabled');
                 }
+            }).fail(function() {
+                $processEl.css({ background: '#fcf0f1', borderLeftColor: '#d63638' }).html('Lỗi kết nối. Thử lại.');
+                $btn.prop('disabled', false);
+                $('#adop-stop-btn').prop('disabled', true).attr('disabled', 'disabled');
             });
         }
         runBatch();

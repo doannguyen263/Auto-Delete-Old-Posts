@@ -2,7 +2,7 @@
 /*
 Plugin Name: Auto Delete Old Posts
 Description: Xóa bài viết cũ hơn 3 tháng theo từng batch. Có trang tùy chỉnh theo dõi và cài đặt.
-Version: 1.3
+Version: 1.4
 Author: Đoàn Nguyễn
 */
 
@@ -42,6 +42,9 @@ register_activation_hook(__FILE__, function () {
     if (get_option(ADOP_CRON_HOUR_OPTION) === false) {
         update_option(ADOP_CRON_HOUR_OPTION, ADOP_DEFAULT_CRON_HOUR);
     }
+    if (get_option(ADOP_MANUAL_BATCH_OPTION) === false) {
+        update_option(ADOP_MANUAL_BATCH_OPTION, ADOP_DEFAULT_MANUAL_BATCH);
+    }
 
     adop_schedule_cron();
 });
@@ -54,13 +57,9 @@ register_deactivation_hook(__FILE__, function () {
 // Tạo cron nếu được bật
 function adop_schedule_cron() {
     if (get_option(ADOP_ENABLE_CRON_OPTION)) {
+        adop_unschedule_cron();
         $cron_hour = intval(get_option(ADOP_CRON_HOUR_OPTION, ADOP_DEFAULT_CRON_HOUR));
         $hook = 'adop_cron_event';
-        // Hủy lịch cũ nếu có
-        $timestamp = wp_next_scheduled($hook);
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, $hook);
-        }
         // Tính timestamp cho lần chạy tiếp theo
         $now = current_time('timestamp');
         $next = mktime($cron_hour, 0, 0, date('n', $now), date('j', $now), date('Y', $now));
@@ -71,12 +70,9 @@ function adop_schedule_cron() {
     }
 }
 
-// Gỡ cron
+// Gỡ cron (clear all occurrences)
 function adop_unschedule_cron() {
-    $timestamp = wp_next_scheduled('adop_cron_event');
-    if ($timestamp) {
-        wp_unschedule_event($timestamp, 'adop_cron_event');
-    }
+    wp_clear_scheduled_hook('adop_cron_event');
 }
 
 // Xử lý cron
@@ -248,7 +244,7 @@ function adop_render_admin_page() {
                     <td>
                         <select name="cron_hour" id="cron_hour">
                             <?php for ($h = 0; $h < 24; $h++): ?>
-                                <option value="<?php echo $h; ?>" <?php selected($cron_hour, $h); ?>><?php printf('%02d:00', $h); ?></option>
+                                <option value="<?php echo esc_attr($h); ?>" <?php selected($cron_hour, $h); ?>><?php printf('%02d:00', $h); ?></option>
                             <?php endfor; ?>
                         </select> (mặc định 00:00)
                     </td>
@@ -262,16 +258,50 @@ function adop_render_admin_page() {
             <input type="hidden" name="action" value="adop_manual_delete">
             <h2>Xóa thủ công</h2>
             <p>
-                <label for="manual_total_limit">Tổng số bài cần xóa (thủ công): </label>
-                <input type="number" id="manual_total_limit" name="manual_total_limit" min="1" value="<?php echo esc_attr($batch); ?>" style="width:100px;" />
+                <label for="adop-manual-total-limit">Tổng số bài cần xóa (thủ công): </label>
+                <input type="number" id="adop-manual-total-limit" name="manual_total_limit" min="1" value="<?php echo esc_attr($batch); ?>" style="width:100px;" />
             </p>
             <p>
-                <label for="manual_batch_limit">Số bài xóa mỗi lượt (batch nhỏ): </label>
-                <input type="number" id="manual_batch_limit" name="manual_batch_limit" min="1" value="<?php echo esc_attr($manual_batch); ?>" style="width:100px;" />
+                <label for="adop-manual-batch-limit">Số bài xóa mỗi lượt (batch nhỏ): </label>
+                <input type="number" id="adop-manual-batch-limit" name="manual_batch_limit" min="1" value="<?php echo esc_attr($manual_batch); ?>" style="width:100px;" />
                 <button type="button" class="button button-primary" id="adop-manual-delete-btn">Chạy xóa bài cũ thủ công</button>
                 <button type="button" class="button" id="adop-stop-btn" disabled>Dừng lại</button>
             </p>
+            <div id="adop-delete-output" style="margin-top:10px; display:none;">
+                <div id="adop-delete-list-box-process" style="margin:0 0 8px 0; padding:10px 12px; min-height:24px; background:#f0f6fc; border-left:4px solid #72aee6; color:#1d2327; font-size:13px; line-height:1.5;"></div>
+                <div id="adop-delete-list-box" style="max-height:260px; overflow-y:auto; border:1px solid #c3c4c7; padding:10px; background:#fff;">
+                    <ul id="adop-delete-titles" style="margin:0; padding-left:20px;"></ul>
+                </div>
+            </div>
         </form>
+
+        <h2>Lịch sử xóa gần đây</h2>
+        <?php if (!empty($log)) : ?>
+            <div style="max-width: 800px; max-height: 320px; overflow-y: auto; border: 1px solid #c3c4c7;">
+                <table class="widefat striped" style="margin: 0;">
+                    <thead>
+                        <tr>
+                            <th>Thời gian</th>
+                            <th>Số bài đã xóa</th>
+                            <th>Loại bài viết</th>
+                            <th>Chỉ xóa bài cũ hơn (tháng)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach (array_reverse($log) as $item) : ?>
+                            <tr>
+                                <td><?php echo esc_html($item['time'] ?? ''); ?></td>
+                                <td><?php echo isset($item['count']) ? intval($item['count']) : 0; ?></td>
+                                <td><?php echo esc_html($item['type'] ?? ''); ?></td>
+                                <td><?php echo isset($item['months']) ? intval($item['months']) : ''; ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else : ?>
+            <p>Chưa có log xóa bài nào.</p>
+        <?php endif; ?>
     </div>
     <?php
 }
@@ -310,7 +340,9 @@ add_action('wp_ajax_adop_manual_delete_batch', function () {
         }
         $count++;
     }
-    $remaining = count(get_posts(array_merge($args, ['posts_per_page' => 1])));
+    // Count remaining old posts (efficient: use found_posts)
+    $count_query = new \WP_Query(array_merge($args, ['posts_per_page' => 1, 'no_found_rows' => false]));
+    $remaining = (int) $count_query->found_posts;
     wp_send_json_success([
         'deleted' => $count,
         'remaining' => $remaining,
@@ -346,7 +378,7 @@ add_action('wp_ajax_adop_save_settings', function () {
 
 add_action('admin_enqueue_scripts', function($hook) {
     if ($hook === 'toplevel_page_adop-delete-posts') {
-        wp_enqueue_script('adop-admin-js', plugin_dir_url(__FILE__).'adop-admin.js', ['jquery'], '1.0', true);
+        wp_enqueue_script('adop-admin-js', plugin_dir_url(__FILE__).'adop-admin.js', ['jquery'], '1.4', true);
         wp_localize_script('adop-admin-js', 'adopAjax', [
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce_delete' => wp_create_nonce('adop_manual_delete'),
